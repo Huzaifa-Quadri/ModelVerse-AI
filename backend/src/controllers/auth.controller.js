@@ -3,6 +3,9 @@ import { generateToken, generateRefreshToken } from "../utils/tokens.js";
 import { HTTP_STATUS, ERROR_MESSAGES } from "../config/constants.js";
 import User from "../models/user.model.js";
 import { sendVerificationEmail } from "../utils/email.js";
+import userModel from "../models/user.model.js";
+import jwt from "jsonwebtoken";
+import { getVerificationHTML } from "../utils/verificationTemplate.js";
 
 const recieverEmail = "thegentledude883@gmail.com";
 
@@ -42,13 +45,13 @@ export const register = catchAsync(async (req, res, next) => {
   });
 
   //! Sending a email with dummy link for now till we get actual link-
+  const port = process.env.PORT;
   const sent = await sendVerificationEmail({
     // email: recieverEmail,
     email: user.email,
     name: user.name,
-    verificationLink: `http://localhost:3000/verify/${token}`,
+    verificationLink: `http://localhost:${port}/api/auth/verify/${token}`,
   });
-
   if (sent) {
     console.log("📧 Verification Email sent successfully");
   } else {
@@ -80,6 +83,12 @@ export const login = catchAsync(async (req, res, next) => {
         ERROR_MESSAGES.INVALID_CREDENTIALS,
         HTTP_STATUS.UNAUTHORIZED,
       ),
+    );
+  }
+
+  if (!user.isVerified) {
+    return next(
+      new AppError(ERROR_MESSAGES.USER_NOT_VERIFIED, HTTP_STATUS.UNAUTHORIZED),
     );
   }
 
@@ -143,3 +152,60 @@ export const getMe = catchAsync(async (req, res, next) => {
     data: user,
   });
 });
+
+export const verifyEmailToken = async (req, res, next) => {
+  const { token } = req.params;
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    const user = await userModel.findOne({ email: decoded.email });
+
+    if (!user) {
+      return res
+        .status(HTTP_STATUS.NOT_FOUND)
+        .send(
+          getVerificationHTML(
+            "User Not Found",
+            "The account associated with this verification link does not exist.",
+            false,
+          ),
+        );
+    }
+
+    if (user.isVerified) {
+      return res
+        .status(HTTP_STATUS.OK)
+        .send(
+          getVerificationHTML(
+            "Account Already Verified",
+            "Your account has already been verified. You can proceed to log in.",
+            true,
+          ),
+        );
+    }
+
+    user.isVerified = true;
+    await user.save();
+
+    return res
+      .status(HTTP_STATUS.OK)
+      .send(
+        getVerificationHTML(
+          "Account Verified!",
+          "Your email has been successfully verified. You can now access all features of your account.",
+          true,
+        ),
+      );
+  } catch (error) {
+    return res
+      .status(HTTP_STATUS.UNAUTHORIZED)
+      .send(
+        getVerificationHTML(
+          "Invalid or Expired Link",
+          "The verification link is invalid or has expired. Please request a new one.",
+          false,
+        ),
+      );
+  }
+};
