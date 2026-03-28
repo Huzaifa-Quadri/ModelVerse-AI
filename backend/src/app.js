@@ -1,6 +1,7 @@
 import express from "express";
 import cookieParser from "cookie-parser";
 import cors from "cors";
+import morgan from "morgan";
 
 // ============================================
 // Import Routes
@@ -28,12 +29,17 @@ const app = express();
  */
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || `http://localhost:${process.env.PORT}`,
+    origin: process.env.CLIENT_URL || `http://localhost:${process.env.Frontend_PORT}`,
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   }),
 );
+
+// ============================================
+// Setting up logger for info
+// ============================================
+app.use(morgan("dev"));
 
 /**
  * Body Parser Middleware
