@@ -1,22 +1,34 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import AuthShell from "../components/AuthShell";
 import AuthInput from "../components/AuthInput";
+import { useAuth } from "../hooks/useAuth";
+import { useSelector } from "react-redux";
 
 const Login = () => {
+  const { user, loading } = useSelector((state) => state.auth);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { handleLogin } = useAuth();
+  const navigator = useNavigate();
 
+  if (!loading && user) {
+    return <Navigate to="/" replace />;
+  }
   async function onSubmit(e) {
     e.preventDefault();
     setIsSubmitting(true);
+    let loggedin = false;
     try {
-      // UI-only for now (hook up your auth API later).
-      await new Promise((r) => setTimeout(r, 650));
+      await handleLogin({ email, password });
+      loggedin = true;
     } finally {
       setIsSubmitting(false);
+    }
+    if (loggedin) {
+      navigator("/");
     }
   }
 
@@ -88,7 +100,7 @@ const Login = () => {
           disabled={isSubmitting}
           className={[
             "group relative w-full overflow-hidden rounded-2xl px-4 py-3 text-sm font-semibold",
-            "bg-gradient-to-r from-cyan-400/90 via-indigo-400/90 to-fuchsia-400/90 text-slate-950",
+            "bg-linear-to-r from-cyan-400/90 via-indigo-400/90 to-fuchsia-400/90 text-slate-950",
             "shadow-lg shadow-cyan-500/10 transition",
             "hover:-translate-y-0.5 hover:shadow-xl hover:shadow-fuchsia-500/10",
             "focus:outline-none focus:ring-4 focus:ring-cyan-300/20",

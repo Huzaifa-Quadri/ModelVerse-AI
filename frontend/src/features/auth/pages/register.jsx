@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import AuthShell from "../components/AuthShell";
 import AuthInput from "../components/AuthInput";
+import { useAuth } from "../hooks/useAuth";
 
 const Register = () => {
   const [name, setName] = useState("");
@@ -11,6 +12,8 @@ const Register = () => {
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmError, setConfirmError] = useState("");
+  const navigator = useNavigate();
+  const { handleRegister } = useAuth();
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -22,9 +25,10 @@ const Register = () => {
     if (!acceptTerms) {
       return;
     }
-    setIsSubmitting(true);
     try {
-      await new Promise((r) => setTimeout(r, 650));
+      setIsSubmitting(true);
+      await handleRegister({ name, email, password });
+      navigator("/login");
     } finally {
       setIsSubmitting(false);
     }
@@ -115,7 +119,7 @@ const Register = () => {
           disabled={isSubmitting}
           className={[
             "group relative w-full overflow-hidden rounded-2xl px-4 py-3 text-sm font-semibold",
-            "bg-gradient-to-r from-cyan-400/90 via-indigo-400/90 to-fuchsia-400/90 text-slate-950",
+            "bg-linear-to-r from-cyan-400/90 via-indigo-400/90 to-fuchsia-400/90 text-slate-950",
             "shadow-lg shadow-cyan-500/10 transition",
             "hover:-translate-y-0.5 hover:shadow-xl hover:shadow-fuchsia-500/10",
             "focus:outline-none focus:ring-4 focus:ring-cyan-300/20",
