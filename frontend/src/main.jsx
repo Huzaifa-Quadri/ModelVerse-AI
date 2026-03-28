@@ -7,7 +7,7 @@ import store from "./app/app.store";
 
 
 createRoot(document.getElementById("root")).render(
-  <StrictMode>
+  <Provider store = {store}>
       <App />
-  </StrictMode>
+  </Provider>
 );
