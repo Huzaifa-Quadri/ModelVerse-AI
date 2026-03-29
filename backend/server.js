@@ -1,5 +1,7 @@
 import app from "./src/app.js";
 import { connectDB, disconnectDB } from "./src/config/database.js";
+import http from "http";
+import { initSocket } from "./src/sockets/server.socket.js";
 
 // ============================================
 // Configuration
@@ -7,6 +9,12 @@ import { connectDB, disconnectDB } from "./src/config/database.js";
 
 const PORT = process.env.PORT || 4000;
 const NODE_ENV = process.env.NODE_ENV || "development";
+
+// ============================================
+// Create HTTP server (for Socket IO)
+// ============================================
+const httpServer = http.createServer(app);
+initSocket(httpServer);
 
 // ============================================
 // Server Initialization
@@ -20,7 +28,7 @@ const startServer = async () => {
     await connectDB();
 
     // Start HTTP server
-    server = app.listen(PORT, () => {
+    server = httpServer.listen(PORT, () => {
       console.log(`
 ╔════════════════════════════════════════════╗
 ║  🚀 Server Started Successfully!           ║
