@@ -1,14 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../../auth/hooks/useAuth";
 import { useSelector } from "react-redux";
+import { useChat } from "../hooks/useChat";
 
 const home = () => {
-  // const {handleGetMe }  = useAuth();
-  // const [currUser, setUser] = useState(null);
+  const { user } = useSelector((state) => state.auth);
+  const chat = useChat();
 
-  // const { user } = useSelector((state) => state.auth);
+  console.log("User from Redux - ", user);
 
-  // console.log("User from Redux - ", user);
+  useEffect(() => {
+    chat.initializeSocketConnection();
+  }, []);
 
   return (
     <div className="bg-green-400">
