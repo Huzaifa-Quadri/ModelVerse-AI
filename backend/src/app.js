@@ -6,7 +6,8 @@ import morgan from "morgan";
 // ============================================
 // Import Routes
 // ============================================
-import authRoutes from "./routes/auth.js";
+import authRoutes from "./routes/auth.routes.js";
+import ChatRouter from "./routes/chat.routes.js";
 
 // ============================================
 // Import Middleware & Error Handlers
@@ -29,7 +30,8 @@ const app = express();
  */
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || `http://localhost:${process.env.Frontend_PORT}`,
+    origin:
+      process.env.CLIENT_URL || `http://localhost:${process.env.Frontend_PORT}`,
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -88,6 +90,7 @@ app.get("/api/health", (req, res) => {
 // ============================================
 
 app.use("/api/auth", authRoutes);
+app.use("/api/chats", ChatRouter);
 
 // ============================================
 // Error Handling & 404

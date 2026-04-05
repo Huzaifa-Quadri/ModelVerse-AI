@@ -5,7 +5,7 @@ export const sendVerificationEmail = async ({
   name,
   verificationLink,
 }) => {
-  const subject = "Verify Your Account - Perplexity";
+  const subject = "Verify Your Account - ModelVerse AI";
 
   const text = `Hi ${name}, please verify your account: ${verificationLink}`;
 
@@ -15,7 +15,7 @@ export const sendVerificationEmail = async ({
       
       <tr>
         <td style="text-align: center;">
-          <h2 style="color: #333;">Welcome to Perplexity 🚀</h2>
+          <h2 style="color: #333;">Welcome to ModelVerse AI 🚀</h2>
         </td>
       </tr>
 
@@ -64,7 +64,7 @@ export const sendVerificationEmail = async ({
         <td style="padding-top: 20px;">
           <p style="font-size: 14px; color: #555;">
             Regards,<br/>
-            <strong>Perplexity Team</strong>
+            <strong>ModelVerse AI Team</strong>
           </p>
         </td>
       </tr>
@@ -79,6 +79,6 @@ export const sendVerificationEmail = async ({
 export const accountVerified = (res) => {
   const html = `
   
-  `
+  `;
   res.sendHTML(html);
-}
+};
