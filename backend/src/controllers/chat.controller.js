@@ -1,19 +1,23 @@
-import { generateResponse, generateTitle } from "../services/ai.service.js";
+import {
+  generateChatMetadata,
+  generateResponse,
+} from "../services/ai.service.js";
 import { AppError, catchAsync } from "../utils/errorHandler.js";
 import chatModel from "../models/chat.model.js";
 import MessageModel from "../models/message.model.js";
 import { HTTP_STATUS } from "../config/constants.js";
 
-export const sendMessage = catchAsync(async (req, res) => {
+export const startChat = catchAsync(async (req, res) => {
   const message = req.body.message;
   const currentUser = req.user.userId;
   // console.log("This is user", user, "and its userID : ", user.userId);
 
-  const title = await generateTitle(message);
+  const { title, topic } = await generateChatMetadata(message);
 
   const newChat = await chatModel.create({
     userId: currentUser,
     title: title,
+    topic: topic,
   });
 
   const userMessage = await MessageModel.create({

@@ -5,16 +5,16 @@ import {
   deleteChat,
   getAllChats,
   getMessages,
-  sendMessage,
+  startChat,
 } from "../controllers/chat.controller.js";
 const chatRouter = Router();
 
 /**
  * @route - POST api/chats/
- * @description - Creating a new chat Sending a new message to the chatbot and receive a response
+ * @description - Creating a new chat and sending a new message to the chatbot and receive a response
  * @access - private
  */
-chatRouter.post("/message", verifyToken, sendMessage);
+chatRouter.post("/message", verifyToken, startChat);
 
 /**
  * @route - POST api/:chatId/message
