@@ -1,6 +1,12 @@
 import { Router } from "express";
 import { verifyToken } from "../middleware/auth.js";
-import { continueChat, sendMessage } from "../controllers/chat.controller.js";
+import {
+  continueChat,
+  deleteChat,
+  getAllChats,
+  getMessages,
+  sendMessage,
+} from "../controllers/chat.controller.js";
 const chatRouter = Router();
 
 /**
@@ -16,5 +22,26 @@ chatRouter.post("/message", verifyToken, sendMessage);
  * @access - private
  */
 chatRouter.post("/:chatId/messages", verifyToken, continueChat);
+
+/**
+ * @route - GET api/chats/
+ * @description - Gets all chats that the singed in User created
+ * @access - private
+ */
+chatRouter.get("/", verifyToken, getAllChats);
+
+/**
+ * @route - GET api/:chatId/messages
+ * @description - Gets all messages a user has in the particular chat
+ * @access - private
+ */
+chatRouter.get("/:chatId/messages", verifyToken, getMessages);
+
+/**
+ * @route - DELETE api/chats/:chatId
+ * @description - Delete the demanded chat and its associated messages
+ * @access - private
+ */
+chatRouter.delete("/:chatId", verifyToken, deleteChat);
 
 export default chatRouter;

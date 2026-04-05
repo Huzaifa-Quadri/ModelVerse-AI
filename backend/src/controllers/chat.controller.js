@@ -83,6 +83,12 @@ export const continueChat = catchAsync(async (req, res) => {
     role: "assistant",
   });
 
+  //Update lastActivity and messageCount in chat document
+  await chatModel.findByIdAndUpdate(chatId, {
+    $inc: { messageCount: 2 },
+    lastActivity: Date.now(),
+  });
+
   // console.log(`Message: ${message} & AI Reponse: ${aiResponse}`);
   console.log("All Message : \n\n\n", allMessages);
 
@@ -93,5 +99,79 @@ export const continueChat = catchAsync(async (req, res) => {
       userMessage: userMessage,
       aiMessage: aiMessage,
     },
+  });
+});
+
+export const getAllChats = catchAsync(async (req, res) => {
+  const currentUser = req.user.userId;
+
+  //checking if user has any chats or not
+  const chats = await chatModel.find({ userId: currentUser });
+
+  if (!chats) {
+    throw new AppError("No chats found for the user.", HTTP_STATUS.NOT_FOUND);
+  }
+
+  res.status(HTTP_STATUS.OK).json({
+    success: true,
+    message: "Retrieved all chats for the user.",
+    data: {
+      chats: chats,
+    },
+  });
+});
+
+export const getMessages = catchAsync(async (req, res) => {
+  const { chatId } = req.params;
+  // Verify chat exists and belongs to the current user
+  const chat = await chatModel.findById(chatId);
+
+  if (!chat) {
+    throw new AppError("Chat Id is Invalid", HTTP_STATUS.BAD_REQUEST);
+  }
+
+  if (String(chat.userId) !== String(req.user.userId)) {
+    throw new AppError(
+      "You are not allowed to view this chat",
+      HTTP_STATUS.FORBIDDEN,
+    );
+  }
+
+  // Fetch messages for the chat (sorted by creation time)
+  const messages = await MessageModel.find({ chatId: chatId }).sort({
+    createdAt: 1,
+  });
+
+  res.status(HTTP_STATUS.OK).json({
+    success: true,
+    message: "Retrieved all messages for the chat.",
+    data: {
+      messages: messages,
+    },
+  });
+});
+
+export const deleteChat = catchAsync(async (req, res) => {
+  const { chatId } = req.params;
+
+  const chat = await chatModel.findById(chatId);
+  if (!chat) {
+    throw new AppError("Chat Id is Invalid", HTTP_STATUS.BAD_REQUEST);
+  }
+
+  if (String(chat.userId) !== String(req.user.userId)) {
+    throw new AppError(
+      "You are not allowed to perform this action",
+      HTTP_STATUS.FORBIDDEN,
+    );
+  }
+
+  await chatModel.findByIdAndDelete(chatId);
+
+  await MessageModel.deleteMany({ chatId: chatId });
+
+  res.status(HTTP_STATUS.OK).json({
+    success: true,
+    message: "Chat and its messages deleted successfully",
   });
 });
