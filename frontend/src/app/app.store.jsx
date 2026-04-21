@@ -1,6 +1,6 @@
 import { configureStore } from "@reduxjs/toolkit";
 import authReducer from "../features/auth/auth.slice";
-
+import chatReducer from "../features/chats/chat.slice";
 const store = configureStore({
   //Store is the global state of the application or the central point of truth for the application to get access
   //Different reducers are the different parts of the state of the application ; different reducer for different parts of the state of the application
@@ -8,6 +8,7 @@ const store = configureStore({
   //? Multiple Reducer for multiple states and purpose
   reducer: {
     auth: authReducer,
+    chat: chatReducer,
   },
 });
 
