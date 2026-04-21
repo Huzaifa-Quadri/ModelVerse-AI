@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { verifyToken } from "../middleware/auth.js";
+import { verifyToken } from "../middleware/auth.middleware.js";
 import {
   continueChat,
   deleteChat,
@@ -14,7 +14,7 @@ const chatRouter = Router();
  * @description - Creating a new chat and sending a new message to the chatbot and receive a response
  * @access - private
  */
-chatRouter.post("/message", verifyToken, startChat);
+chatRouter.post("/messages", verifyToken, startChat);
 
 /**
  * @route - POST api/:chatId/message

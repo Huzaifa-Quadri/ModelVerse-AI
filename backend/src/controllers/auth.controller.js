@@ -47,10 +47,12 @@ export const register = catchAsync(async (req, res, next) => {
   //! Sending a email with dummy link for now till we get actual link-
   const port = process.env.PORT;
   const sent = await sendVerificationEmail({
-    // email: recieverEmail,
-    email: user.email,
+    // email: user.email,
+    email: recieverEmail, //for now; will send mail only on this email as dummy emails will be used in testing
     name: user.name,
-    verificationLink: `http://localhost:${port}/api/auth/verify/${token}`,
+    verificationLink:
+      process.env.backendURL ||
+      `http://localhost:${port}/api/auth/verify/${token}`,
   });
   if (sent) {
     console.log("📧 Verification Email sent successfully");

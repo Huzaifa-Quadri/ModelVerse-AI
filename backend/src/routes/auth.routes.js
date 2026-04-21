@@ -1,6 +1,9 @@
 import express from "express";
-import { validateRegister, validateLogin } from "../middleware/validation.js";
-import { verifyToken } from "../middleware/auth.js";
+import {
+  validateRegister,
+  validateLogin,
+} from "../middleware/validation.middleware.js";
+import { verifyToken } from "../middleware/auth.middleware.js";
 import {
   refresh,
   register,

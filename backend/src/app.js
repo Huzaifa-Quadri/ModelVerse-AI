@@ -41,7 +41,9 @@ app.use(
 // ============================================
 // Setting up logger for info
 // ============================================
-app.use(morgan("dev"));
+if (process.env.NODE_ENV === "development") {
+  app.use(morgan("dev"));
+}
 
 /**
  * Body Parser Middleware
@@ -52,19 +54,6 @@ app.use(morgan("dev"));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.use(cookieParser());
-
-/**
- * Request Logging Middleware (Development)
- * - Logs incoming requests with method, URL, and timestamp
- */
-if (process.env.NODE_ENV === "development") {
-  app.use((req, res, next) => {
-    console.log(
-      `📨 [${new Date().toISOString()}] ${req.method} ${req.originalUrl}`,
-    );
-    next();
-  });
-}
 
 // ============================================
 // Health Check Endpoint
