@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useSelector } from "react-redux";
-import { useChat } from "../hooks/useChat";
+import { useChat } from "../hooks/useChat.hook";
 
 const MenuIcon = ({ className }) => (
   <svg

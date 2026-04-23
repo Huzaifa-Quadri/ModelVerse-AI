@@ -10,7 +10,7 @@ const chatSlice = createSlice({
   },
 
   reducers: {
-    setChats: (state, chats) => {
+    setChats: (state, action) => {
       state.chats = action.payload;
     },
     setCurrentChatid: (state, action) => {
@@ -28,9 +28,10 @@ export const { setChats, setCurrentChatid, setLoading, setError } =
   chatSlice.actions;
 export default chatSlice.reducer;
 
-//Sample chat data
+//Sample chat data (what i am thinking of doing)
 // chats = {
-//   "i am feeling good today" : {
+//   "i am feeling good today" : //chat - title
+//  {
 //     messages : [
 //       {
 //         role : "user",
