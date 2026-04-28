@@ -20,6 +20,29 @@ import {
 } from "../chat.slice.js";
 import { useCallback } from "react";
 
+const CURRENT_CHAT_STORAGE_KEY = "modelverse.currentChatId";
+
+const getPersistedChatId = () => {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(CURRENT_CHAT_STORAGE_KEY);
+};
+
+const persistChatId = (chatId) => {
+  if (typeof window === "undefined") return;
+
+  if (chatId) {
+    window.localStorage.setItem(CURRENT_CHAT_STORAGE_KEY, chatId);
+  } else {
+    window.localStorage.removeItem(CURRENT_CHAT_STORAGE_KEY);
+  }
+};
+
+const getChatId = (chat) => chat?._id || chat?.id;
+
+const getChatTime = (chat) =>
+  new Date(chat?.lastActivity || chat?.updatedAt || chat?.createdAt || 0)
+    .getTime();
+
 export const useChat = () => {
   const dispatch = useDispatch();
 
@@ -31,7 +54,7 @@ export const useChat = () => {
   );
 
   const currentMessages = chats[currentChatId]?.messages || [];
-  const currentChatTitle = chats[currentChatId]?.title || "New Chat";
+  const currentChatTitle = currentChatId ? chats[currentChatId]?.title || "New Chat" : "";
 
   const fetchAllChats = useCallback(async () => {
     dispatch(setLoading(true));
@@ -39,20 +62,47 @@ export const useChat = () => {
 
     try {
       const res = await getAllChatsApi();
+      const chatList = Array.isArray(res.data?.chats) ? res.data.chats : [];
+      const sortedChatList = [...chatList].sort(
+        (a, b) => getChatTime(b) - getChatTime(a),
+      );
+      const chatsMap = sortedChatList.reduce((map, chat) => {
+        const chatId = getChatId(chat);
+        if (!chatId) return map;
 
-      const chatsMap = {};
-
-      res.data.chats.forEach((chat) => {
-        chatsMap[chat.id] = {
-          title: chat.title,
+        map[chatId] = {
+          title: chat.title || "Untitled Chat",
           messages: [],
-          lastUpdated: chat.lastActivity,
+          lastUpdated: chat.lastActivity || chat.updatedAt || chat.createdAt,
         };
-      });
+        return map;
+      }, {});
 
-      if (res.success) {
-        dispatch(setChats(chatsMap));
+      dispatch(setChats(chatsMap));
+
+      const persistedChatId = getPersistedChatId();
+      const fallbackChatId = getChatId(sortedChatList[0]);
+      const chatIdToOpen =
+        persistedChatId && chatsMap[persistedChatId]
+          ? persistedChatId
+          : fallbackChatId;
+
+      if (!chatIdToOpen) {
+        dispatch(setCurrentChatId(null));
+        persistChatId(null);
+        return;
       }
+
+      dispatch(setCurrentChatId(chatIdToOpen));
+      persistChatId(chatIdToOpen);
+
+      const messagesRes = await getMessagesApi(chatIdToOpen);
+      dispatch(
+        setMessages({
+          chatId: chatIdToOpen,
+          messages: messagesRes.data?.messages || [],
+        }),
+      );
     } catch (err) {
       dispatch(setError(err.response?.data?.message || err.message));
     } finally {
@@ -64,14 +114,16 @@ export const useChat = () => {
     async (chatId) => {
       dispatch(setError(null));
 
-      if (chats[chatId].messages.length > 0) {
+      if (chats[chatId]?.messages.length > 0) {
         dispatch(setCurrentChatId(chatId));
+        persistChatId(chatId);
       }
       dispatch(setLoading(true));
 
       try {
         // Set this chat as active immediately (so UI switches to it right away)
         dispatch(setCurrentChatId(chatId));
+        persistChatId(chatId);
 
         // Call GET /api/chats/:chatId/messages
         // res = { success: true, data: { messages: [...] } }
@@ -142,6 +194,7 @@ export const useChat = () => {
 
           // Make this new chat the active one so UI shows it
           dispatch(setCurrentChatId(chatId));
+          persistChatId(chatId);
         } else {
           // ── CASE B: CONTINUE EXISTING CHAT ──────────────────────────────
           // POST /api/chats/:chatId/messages  with body: { message }
@@ -186,6 +239,7 @@ export const useChat = () => {
     // Now when user types a message, sendMessage sees currentChatId is null
     // and will call startChatApi to create a brand new chat
     dispatch(resetChat());
+    persistChatId(null);
   }, [dispatch]);
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -205,6 +259,9 @@ export const useChat = () => {
         // clear the view so user doesn't see a deleted chat
         if (chatId === currentChatId) {
           dispatch(resetChat());
+          persistChatId(null);
+        } else if (getPersistedChatId() === chatId) {
+          persistChatId(null);
         }
       } catch (err) {
         dispatch(setError(err.response?.data?.message || err.message));

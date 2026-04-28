@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useSelector } from "react-redux";
 import useChat from "../hooks/useChat.hook";
 
@@ -99,6 +99,202 @@ const TrashIcon = ({ className }) => (
   </svg>
 );
 
+const InlineMarkdown = ({ text }) => {
+  const parts = [];
+  const pattern = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+
+    const token = match[0];
+    if (token.startsWith("**")) {
+      parts.push(
+        <strong key={`${match.index}-strong`} className="font-semibold text-gray-100">
+          {token.slice(2, -2)}
+        </strong>,
+      );
+    } else if (token.startsWith("*")) {
+      parts.push(
+        <em key={`${match.index}-em`} className="text-gray-100/95">
+          {token.slice(1, -1)}
+        </em>,
+      );
+    } else {
+      parts.push(
+        <code
+          key={`${match.index}-code`}
+          className="rounded-md bg-[#0E1117] px-1.5 py-0.5 text-[0.9em] text-blue-200"
+        >
+          {token.slice(1, -1)}
+        </code>,
+      );
+    }
+
+    lastIndex = match.index + token.length;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return <>{parts}</>;
+};
+
+const MarkdownMessage = ({ content }) => {
+  const lines = content.split(/\r?\n/);
+  const elements = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index];
+
+    if (!line.trim()) {
+      index += 1;
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      const Tag = heading[1].length === 1 ? "h3" : heading[1].length === 2 ? "h4" : "h5";
+      elements.push(
+        <Tag key={index} className="mt-4 first:mt-0 font-semibold text-gray-100">
+          <InlineMarkdown text={heading[2]} />
+        </Tag>,
+      );
+      index += 1;
+      continue;
+    }
+
+    if (/^\s*[-*+]\s+/.test(line)) {
+      const items = [];
+      while (index < lines.length && /^\s*[-*+]\s+/.test(lines[index])) {
+        items.push(lines[index].replace(/^\s*[-*+]\s+/, ""));
+        index += 1;
+      }
+      elements.push(
+        <ul key={`ul-${index}`} className="my-3 list-disc space-y-1 pl-5">
+          {items.map((item, itemIndex) => (
+            <li key={itemIndex}>
+              <InlineMarkdown text={item} />
+            </li>
+          ))}
+        </ul>,
+      );
+      continue;
+    }
+
+    if (/^\s*\d+\.\s+/.test(line)) {
+      const items = [];
+      while (index < lines.length && /^\s*\d+\.\s+/.test(lines[index])) {
+        items.push(lines[index].replace(/^\s*\d+\.\s+/, ""));
+        index += 1;
+      }
+      elements.push(
+        <ol key={`ol-${index}`} className="my-3 list-decimal space-y-1 pl-5">
+          {items.map((item, itemIndex) => (
+            <li key={itemIndex}>
+              <InlineMarkdown text={item} />
+            </li>
+          ))}
+        </ol>,
+      );
+      continue;
+    }
+
+    if (/^>\s?/.test(line)) {
+      elements.push(
+        <blockquote
+          key={index}
+          className="my-3 border-l-2 border-blue-400/60 pl-4 text-gray-300"
+        >
+          <InlineMarkdown text={line.replace(/^>\s?/, "")} />
+        </blockquote>,
+      );
+      index += 1;
+      continue;
+    }
+
+    const paragraph = [];
+    while (
+      index < lines.length &&
+      lines[index].trim() &&
+      !/^(#{1,3})\s+/.test(lines[index]) &&
+      !/^\s*[-*+]\s+/.test(lines[index]) &&
+      !/^\s*\d+\.\s+/.test(lines[index]) &&
+      !/^>\s?/.test(lines[index])
+    ) {
+      paragraph.push(lines[index]);
+      index += 1;
+    }
+
+    elements.push(
+      <p key={`p-${index}`} className="my-3 first:mt-0 last:mb-0">
+        {paragraph.map((paragraphLine, lineIndex) => (
+          <React.Fragment key={lineIndex}>
+            <InlineMarkdown text={paragraphLine} />
+            {lineIndex < paragraph.length - 1 && <br />}
+          </React.Fragment>
+        ))}
+      </p>,
+    );
+  }
+
+  return <div>{elements}</div>;
+};
+
+const AssistantMessageContent = ({
+  content,
+  shouldAnimate,
+  onAnimationComplete,
+  onTypingTick,
+}) => {
+  const [visibleContent, setVisibleContent] = useState(
+    shouldAnimate ? "" : content,
+  );
+  const onAnimationCompleteRef = useRef(onAnimationComplete);
+  const onTypingTickRef = useRef(onTypingTick);
+
+  useEffect(() => {
+    onAnimationCompleteRef.current = onAnimationComplete;
+    onTypingTickRef.current = onTypingTick;
+  }, [onAnimationComplete, onTypingTick]);
+
+  useEffect(() => {
+    if (!shouldAnimate) {
+      return undefined;
+    }
+
+    let currentIndex = 0;
+    const intervalId = window.setInterval(() => {
+      currentIndex += 1;
+      setVisibleContent(content.slice(0, currentIndex));
+
+      if (currentIndex >= content.length) {
+        window.clearInterval(intervalId);
+        onAnimationCompleteRef.current?.();
+      }
+    }, 12);
+
+    return () => window.clearInterval(intervalId);
+  }, [content, shouldAnimate]);
+
+  useEffect(() => {
+    if (!shouldAnimate) return undefined;
+
+    const frameId = window.requestAnimationFrame(() => {
+      onTypingTickRef.current?.();
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [shouldAnimate, visibleContent]);
+
+  return <MarkdownMessage content={shouldAnimate ? visibleContent : content} />;
+};
+
 // ── Main Component ────────────────────────────────────────────────────────────
 const Home = () => {
   // ── Auth state from Redux ──────────────────────────────────────────────────
@@ -124,18 +320,58 @@ const Home = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [inputMessage, setInputMessage] = useState("");
   const [deletingChatId, setDeletingChatId] = useState(null); // tracks which chat is being deleted
+  const [pendingUserMessage, setPendingUserMessage] = useState(null);
+  const [animatingAssistantId, setAnimatingAssistantId] = useState(null);
 
   // ── Ref for auto-scrolling to latest message ──────────────────────────────
+  const messagesContainerRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const wasLoadingRef = useRef(false);
+  const animatedAssistantIdsRef = useRef(new Set());
+
+  const scrollMessagesToBottom = useCallback((behavior = "smooth") => {
+    const container = messagesContainerRef.current;
+
+    if (container) {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior,
+      });
+      return;
+    }
+
+    messagesEndRef.current?.scrollIntoView({ behavior });
+  }, []);
 
   useEffect(() => {
     fetchAllChats();
-  }, []); // ← empty array means "run once on mount"
+  }, [fetchAllChats]); // fetch chats on mount
 
   // ── Auto scroll to bottom whenever messages change ────────────────────────
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [currentMessages]); // ← runs every time currentMessages array changes
+    scrollMessagesToBottom();
+  }, [currentMessages, pendingUserMessage, isLoading, scrollMessagesToBottom]); // ← runs every time currentMessages array changes
+
+  useEffect(() => {
+    if (isLoading) {
+      wasLoadingRef.current = true;
+      return;
+    }
+
+    const latestMessage = currentMessages[currentMessages.length - 1];
+    const latestMessageId = latestMessage?._id || latestMessage?.createdAt;
+
+    if (
+      wasLoadingRef.current &&
+      latestMessage?.role === "assistant" &&
+      latestMessageId &&
+      !animatedAssistantIdsRef.current.has(latestMessageId)
+    ) {
+      queueMicrotask(() => setAnimatingAssistantId(latestMessageId));
+    }
+
+    wasLoadingRef.current = false;
+  }, [currentMessages, isLoading]);
 
   //* ── Handle send message ───────────────────────────────────────────────────
   const handleSendMessage = async (e) => {
@@ -148,12 +384,20 @@ const Home = () => {
     if (isLoading) return;
 
     const messageToSend = inputMessage; // save before clearing
+    const optimisticMessage = {
+      _id: `pending-${Date.now()}`,
+      content: messageToSend,
+      role: "user",
+    };
+
+    setPendingUserMessage(optimisticMessage);
     setInputMessage(""); // clear input immediately (feels responsive)
 
     // sendMessage from hook handles everything:
     // - if no active chat → calls startChatApi (new chat)
     // - if chat is open → calls continueChatApi (continue)
     await sendMessage(messageToSend);
+    setPendingUserMessage(null);
   };
 
   // ── Handle delete with local loading state ────────────────────────────────
@@ -174,8 +418,22 @@ const Home = () => {
     ([, a], [, b]) => new Date(b.lastUpdated) - new Date(a.lastUpdated),
   );
 
+  const displayedMessages = useMemo(() => {
+    if (!pendingUserMessage) return currentMessages;
+
+    const pendingIsAlreadyStored = currentMessages.some(
+      (msg) =>
+        msg.role === "user" &&
+        msg.content.trim() === pendingUserMessage.content.trim(),
+    );
+
+    return pendingIsAlreadyStored
+      ? currentMessages
+      : [...currentMessages, pendingUserMessage];
+  }, [currentMessages, pendingUserMessage]);
+
   // ── Show welcome screen when no chat is open ──────────────────────────────
-  const showWelcome = !currentChatId;
+  const showWelcome = !currentChatId && !pendingUserMessage;
 
   return (
     <div className="flex h-screen w-full bg-[#0E1117] text-gray-100 overflow-hidden font-sans relative">
@@ -371,7 +629,10 @@ const Home = () => {
         <div className="absolute top-0 w-full h-16 bg-linear-to-b from-[#0E1117] to-transparent pointer-events-none z-0" />
 
         {/* Messages Container */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 pb-36 scroll-smooth flex justify-center custom-scrollbar z-0 relative">
+        <div
+          ref={messagesContainerRef}
+          className="flex-1 overflow-y-auto p-4 sm:p-6 pb-36 scroll-smooth flex justify-center custom-scrollbar z-0 relative"
+        >
           <div className="w-full max-w-4xl space-y-8 mt-12 sm:mt-10 mx-auto px-2 md:px-8">
             {/* ✅ Welcome screen — show when no chat is open */}
             {showWelcome && (
@@ -392,36 +653,52 @@ const Home = () => {
             )}
 
             {/* ✅ Real messages from Redux store */}
-            {currentMessages.map((msg) => (
-              <div
-                key={msg._id} // ← using MongoDB _id now, not fake Date.now()
-                className={`flex ${msg.role === "assistant" ? "justify-start" : "justify-end"} w-full`}
-              >
-                {msg.role === "assistant" && (
-                  <div className="shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-linear-to-tr from-blue-500 to-purple-600 flex items-center justify-center mr-3 sm:mr-5 mt-1 shadow-lg shadow-purple-500/20 border border-white/5">
-                    <BotIcon className="w-5 h-5 text-white" />
-                  </div>
-                )}
+            {displayedMessages.map((msg) => {
+              const messageId = msg._id || msg.createdAt;
+
+              return (
                 <div
-                  className={`max-w-[85%] md:max-w-[80%] px-6 py-4 rounded-3xl text-[15px] sm:text-[16px] leading-relaxed shadow-sm ${
-                    msg.role === "assistant"
-                      ? "bg-[#151923] border border-white/5 text-gray-200 rounded-tl-sm shadow-black/20 font-light"
-                      : "bg-linear-to-br from-blue-600 to-indigo-600 text-white rounded-tr-sm shadow-[0_4px_20px_rgba(37,99,235,0.2)] border border-blue-400/20 font-normal"
-                  }`}
+                  key={messageId} // ← using MongoDB _id now, not fake Date.now()
+                  className={`flex ${msg.role === "assistant" ? "justify-start" : "justify-end"} w-full`}
                 >
-                  {/* Render message content — preserves line breaks from AI */}
-                  {msg.content.split("\n").map((line, i) => (
-                    <span key={i}>
-                      {line}
-                      {i < msg.content.split("\n").length - 1 && <br />}
-                    </span>
-                  ))}
+                  {msg.role === "assistant" && (
+                    <div className="shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-linear-to-tr from-blue-500 to-purple-600 flex items-center justify-center mr-3 sm:mr-5 mt-1 shadow-lg shadow-purple-500/20 border border-white/5">
+                      <BotIcon className="w-5 h-5 text-white" />
+                    </div>
+                  )}
+                  <div
+                    className={`max-w-[85%] md:max-w-[80%] px-6 py-4 rounded-3xl text-[15px] sm:text-[16px] leading-relaxed shadow-sm ${
+                      msg.role === "assistant"
+                        ? "bg-[#151923] border border-white/5 text-gray-200 rounded-tl-sm shadow-black/20 font-light"
+                        : "bg-linear-to-br from-blue-600 to-indigo-600 text-white rounded-tr-sm shadow-[0_4px_20px_rgba(37,99,235,0.2)] border border-blue-400/20 font-normal"
+                    }`}
+                  >
+                    {msg.role === "assistant" ? (
+                      <AssistantMessageContent
+                        content={msg.content}
+                        shouldAnimate={messageId === animatingAssistantId}
+                        onTypingTick={() => scrollMessagesToBottom("auto")}
+                        onAnimationComplete={() => {
+                          animatedAssistantIdsRef.current.add(messageId);
+                          setAnimatingAssistantId(null);
+                          scrollMessagesToBottom("smooth");
+                        }}
+                      />
+                    ) : (
+                      msg.content.split("\n").map((line, i) => (
+                        <span key={i}>
+                          {line}
+                          {i < msg.content.split("\n").length - 1 && <br />}
+                        </span>
+                      ))
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
             {/* ✅ AI Typing Indicator — shows while waiting for AI response */}
-            {isLoading && currentChatId && (
+            {isLoading && (currentChatId || pendingUserMessage) && (
               <div className="flex justify-start w-full">
                 <div className="shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-linear-to-tr from-blue-500 to-purple-600 flex items-center justify-center mr-3 sm:mr-5 mt-1 shadow-lg border border-white/5">
                   <BotIcon className="w-5 h-5 text-white" />
@@ -445,7 +722,7 @@ const Home = () => {
               </div>
             )}
 
-            <div ref={messagesEndRef} className="h-4" />
+            <div ref={messagesEndRef} className="h-28 sm:h-24" />
           </div>
         </div>
 
@@ -476,7 +753,7 @@ const Home = () => {
                 }
                 // ✅ Disable input while loading so user can't spam send
                 disabled={isLoading}
-                className={`w-full bg-[#1A1D27] border border-white/10 text-gray-100 placeholder-gray-500 rounded-4xl py-4 sm:py-5 pl-7 pr-16 outline-none focus:border-blue-500/40 focus:bg-[#1C202B] transition-all resize-none overflow-hidden max-h-40 text-[15px] sm:text-[16px] custom-scrollbar shadow-2xl relative z-10 ${
+                className={`w-full bg-[#1A1D27] border border-white/10 text-gray-100 placeholder-gray-500 rounded-4xl py-4 sm:py-5 pl-7 pr-[4.5rem] outline-none focus:border-blue-500/40 focus:bg-[#1C202B] transition-all resize-none overflow-hidden max-h-40 text-[15px] sm:text-[16px] custom-scrollbar shadow-2xl relative z-10 ${
                   isLoading ? "opacity-60 cursor-not-allowed" : ""
                 }`}
                 rows={1}
@@ -486,7 +763,7 @@ const Home = () => {
                 type="submit"
                 // ✅ Disable when empty OR when loading
                 disabled={!inputMessage.trim() || isLoading}
-                className={`absolute right-3 bottom-2.5 sm:bottom-3 p-3 sm:p-3.5 rounded-full flex items-center justify-center transition-all duration-300 z-20 ${
+                className={`absolute right-3 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full flex items-center justify-center transition-all duration-300 z-20 ${
                   inputMessage.trim() && !isLoading
                     ? "bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-500/30"
                     : "bg-transparent text-gray-600 scale-95"
