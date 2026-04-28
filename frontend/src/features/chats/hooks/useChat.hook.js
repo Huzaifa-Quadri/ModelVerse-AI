@@ -1,7 +1,32 @@
-import { initializeSocketConnection } from "../service/chat.socket.js";
+// ============================================
+// useChat Hook — The Brain of the Chat Feature
+// ============================================
+//
+// This hook is the single source of truth for all chat logic.
+// Every chat action (send, load, delete, fetch) goes through here.
+//
+// WHAT CHANGED (Socket.IO Integration):
+// ─────────────────────────────────────
+// BEFORE: sendMessage() called REST APIs (startChatApi / continueChatApi)
+//         → waited 2-10 seconds → got entire AI response at once
+//
+// AFTER:  sendMessage() emits a socket event ("chat:sendMessage")
+//         → server streams AI tokens back one-by-one via "ai:token" events
+//         → each token updates Redux → UI renders in real-time
+//
+// WHAT STAYED THE SAME:
+// ─────────────────────
+// fetchAllChats, loadChat, deleteChatById → still use REST (axios)
+// These are simple CRUD operations that don't need real-time streaming.
+//
+// NEW FEATURES:
+// ─────────────
+// - stopGenerating() → cancels AI generation mid-stream
+// - isStreaming       → true while AI tokens are flowing
+// - streamingContent  → the live AI text being built token-by-token
+
+import { getSocket } from "../service/chat.socket.js";
 import {
-  startChat as startChatApi,
-  continueChat as continueChatApi,
   getAllChats as getAllChatsApi,
   getMessages as getMessagesApi,
   deleteChat as deleteChatApi,
@@ -17,9 +42,18 @@ import {
   resetChat,
   setLoading,
   setError,
+  // NEW: Streaming actions
+  startStreaming,
+  appendToken,
+  finishStreaming,
 } from "../chat.slice.js";
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
+// ============================================
+// localStorage helpers for persisting active chat
+// ============================================
+// When the user refreshes the page, we want to re-open the chat
+// they were looking at. These helpers save/load the currentChatId.
 const CURRENT_CHAT_STORAGE_KEY = "modelverse.currentChatId";
 
 const getPersistedChatId = () => {
@@ -37,25 +71,253 @@ const persistChatId = (chatId) => {
   }
 };
 
+// ── Helper: Extract chatId from MongoDB document ──
 const getChatId = (chat) => chat?._id || chat?.id;
 
+// ── Helper: Get timestamp for sorting chats ──
 const getChatTime = (chat) =>
-  new Date(chat?.lastActivity || chat?.updatedAt || chat?.createdAt || 0)
-    .getTime();
+  new Date(
+    chat?.lastActivity || chat?.updatedAt || chat?.createdAt || 0,
+  ).getTime();
 
 export const useChat = () => {
   const dispatch = useDispatch();
 
-  // Reading data from Redux store
-  // state.chat because your slice is named "chat"
-  // Every time store updates, your component automatically re-renders with new data
-  const { chats, currentChatId, isLoading, error } = useSelector(
-    (state) => state.chat,
-  );
+  // ── Read state from Redux store ──
+  // Every time any of these values change in the store,
+  // this component automatically re-renders with new data.
+  const {
+    chats,
+    currentChatId,
+    isLoading,
+    error,
+    isStreaming,
+    streamingContent,
+  } = useSelector((state) => state.chat);
 
+  // Derived values (computed from store data)
   const currentMessages = chats[currentChatId]?.messages || [];
-  const currentChatTitle = currentChatId ? chats[currentChatId]?.title || "New Chat" : "";
+  const currentChatTitle = currentChatId
+    ? chats[currentChatId]?.title || "New Chat"
+    : "";
 
+  // ── Refs for socket event handlers ──
+  // We use refs so the socket listeners always see the latest state
+  // without needing to re-register listeners on every render.
+  //
+  // WHY refs instead of direct state?
+  // Socket.IO listeners are registered once (in useEffect).
+  // If we used currentChatId directly inside those listeners,
+  // they'd capture the value at registration time (stale closure).
+  // Refs always point to the latest value.
+  const currentChatIdRef = useRef(currentChatId);
+  const chatsRef = useRef(chats);
+
+  // Keep refs in sync with Redux state
+  useEffect(() => {
+    currentChatIdRef.current = currentChatId;
+  }, [currentChatId]);
+
+  useEffect(() => {
+    chatsRef.current = chats;
+  }, [chats]);
+
+  // ── Track if socket listeners are already registered ──
+  // Prevents duplicate listeners if the hook re-initializes
+  const socketListenersRegistered = useRef(false);
+
+  // ============================================
+  // Socket.IO Event Listeners Setup
+  // ============================================
+  //
+  // This useEffect runs ONCE on mount and sets up listeners
+  // for all the events the server emits during chat:sendMessage.
+  //
+  // Event flow (what the server sends → what we do here):
+  //
+  //   1. "chat:created"          → New chat was created → add to sidebar
+  //   2. "chat:userMessageSaved" → User msg saved in DB → add to messages
+  //   3. "ai:streamStart"        → AI is about to stream → show streaming UI
+  //   4. "ai:token"              → One word/token from AI → append to streaming content
+  //   5. "ai:complete"           → AI finished → save final message, clear streaming
+  //   6. "chat:error"            → Something went wrong → show error
+  //
+  useEffect(() => {
+    // Don't register listeners twice
+    if (socketListenersRegistered.current) return;
+
+    const socket = getSocket();
+    socketListenersRegistered.current = true;
+
+    // ──────────────────────────────────────────────────────────────
+    // EVENT: chat:created
+    // ──────────────────────────────────────────────────────────────
+    // Server sends this when a NEW chat was created (no chatId was provided).
+    // We add it to the chats map so it appears in the sidebar immediately.
+    //
+    // Data received: { chatId: "abc123", title: "JavaScript Tips" }
+    //
+    socket.on("chat:created", ({ chatId, title }) => {
+      console.log("📨 chat:created", chatId, title);
+
+      // Add the new chat to Redux store (appears in sidebar)
+      dispatch(
+        addChat({
+          chatId,
+          title,
+          messages: [], // Messages will be added via subsequent events
+          lastUpdated: new Date().toISOString(),
+        }),
+      );
+
+      // Make this new chat the active one (UI switches to it)
+      dispatch(setCurrentChatId(chatId));
+      persistChatId(chatId);
+    });
+
+    // ──────────────────────────────────────────────────────────────
+    // EVENT: chat:userMessageSaved
+    // ──────────────────────────────────────────────────────────────
+    // Server confirms the user's message was saved to MongoDB.
+    // We add it to the chat's messages array with the real MongoDB _id.
+    //
+    // Data received: {
+    //   chatId: "abc123",
+    //   userMessage: { _id, content, role, createdAt },
+    //   isNewChat: true/false
+    // }
+    //
+    socket.on("chat:userMessageSaved", ({ chatId, userMessage, isNewChat }) => {
+      console.log("📨 chat:userMessageSaved", chatId);
+
+      // If this is a new chat, the chat was already added via "chat:created"
+      // but might not have the chatId set in messages yet.
+      // For existing chats, we just append the user message.
+
+      // Check if the chat exists in our store
+      if (chatsRef.current[chatId]) {
+        dispatch(
+          appendMessages({
+            chatId,
+            messages: [userMessage],
+          }),
+        );
+      } else if (isNewChat) {
+        // Edge case: chat:created might not have processed yet
+        // Add the chat with the user message
+        dispatch(
+          addChat({
+            chatId,
+            title: "New Chat",
+            messages: [userMessage],
+            lastUpdated: new Date().toISOString(),
+          }),
+        );
+        dispatch(setCurrentChatId(chatId));
+        persistChatId(chatId);
+      }
+    });
+
+    // ──────────────────────────────────────────────────────────────
+    // EVENT: ai:streamStart
+    // ──────────────────────────────────────────────────────────────
+    // Server is about to start streaming tokens.
+    // We set isStreaming = true so the UI shows the streaming bubble.
+    //
+    socket.on("ai:streamStart", () => {
+      console.log("📨 ai:streamStart");
+      dispatch(startStreaming());
+    });
+
+    // ──────────────────────────────────────────────────────────────
+    // EVENT: ai:token
+    // ──────────────────────────────────────────────────────────────
+    // A single token/word from Gemini AI.
+    // We append it to streamingContent in Redux.
+    //
+    // This event fires RAPIDLY — possibly hundreds of times per response.
+    // Each call updates Redux → React re-renders → user sees new text.
+    //
+    // Data received: { chatId: "abc123", token: "Hello" }
+    //
+    // Timeline example:
+    //   ai:token { token: "Hello" }     → streamingContent: "Hello"
+    //   ai:token { token: " there" }    → streamingContent: "Hello there"
+    //   ai:token { token: "!" }         → streamingContent: "Hello there!"
+    //   ai:token { token: " How" }      → streamingContent: "Hello there! How"
+    //   ... and so on
+    //
+    socket.on("ai:token", ({ token }) => {
+      dispatch(appendToken(token));
+    });
+
+    // ──────────────────────────────────────────────────────────────
+    // EVENT: ai:complete
+    // ──────────────────────────────────────────────────────────────
+    // AI finished generating. The complete response has been saved to MongoDB.
+    // We add the final AI message to the chat's messages array and
+    // clear all streaming state.
+    //
+    // Data received: {
+    //   chatId: "abc123",
+    //   aiMessage: { _id, content, role, createdAt } | null
+    // }
+    //
+    // After this event:
+    //   - isStreaming = false
+    //   - streamingContent = ""
+    //   - The AI message appears as a regular message in the chat
+    //   - Input box is re-enabled
+    //
+    socket.on("ai:complete", ({ chatId, aiMessage }) => {
+      console.log("📨 ai:complete", chatId);
+
+      if (aiMessage) {
+        // Add the final AI message to the chat's messages array
+        dispatch(
+          appendMessages({
+            chatId,
+            messages: [aiMessage],
+          }),
+        );
+      }
+
+      // Clear streaming state → UI switches from streaming bubble to normal message
+      dispatch(finishStreaming());
+      dispatch(setLoading(false));
+    });
+
+    // ──────────────────────────────────────────────────────────────
+    // EVENT: chat:error
+    // ──────────────────────────────────────────────────────────────
+    // Something went wrong on the server (DB error, AI error, etc.)
+    // We show the error banner and clear loading/streaming state.
+    //
+    socket.on("chat:error", ({ message }) => {
+      console.error("📨 chat:error:", message);
+      dispatch(setError(message));
+      dispatch(finishStreaming());
+      dispatch(setLoading(false));
+    });
+
+    // ── Cleanup on unmount ──
+    // Remove all listeners to prevent memory leaks
+    return () => {
+      socket.off("chat:created");
+      socket.off("chat:userMessageSaved");
+      socket.off("ai:streamStart");
+      socket.off("ai:token");
+      socket.off("ai:complete");
+      socket.off("chat:error");
+      socketListenersRegistered.current = false;
+    };
+  }, [dispatch]);
+
+  // ============================================
+  // 1. FETCH ALL CHATS (REST — unchanged)
+  // ============================================
+  // Loads the sidebar with all user's chats on app mount.
+  // Still uses REST because this is a one-time load — no streaming needed.
   const fetchAllChats = useCallback(async () => {
     dispatch(setLoading(true));
     dispatch(setError(null));
@@ -110,6 +372,9 @@ export const useChat = () => {
     }
   }, [dispatch]);
 
+  // ============================================
+  // 2. LOAD CHAT (REST)
+  // ============================================
   const loadChat = useCallback(
     async (chatId) => {
       dispatch(setError(null));
@@ -121,16 +386,11 @@ export const useChat = () => {
       dispatch(setLoading(true));
 
       try {
-        // Set this chat as active immediately (so UI switches to it right away)
         dispatch(setCurrentChatId(chatId));
         persistChatId(chatId);
 
-        // Call GET /api/chats/:chatId/messages
-        // res = { success: true, data: { messages: [...] } }
         const res = await getMessagesApi(chatId);
 
-        // Fill this chat's messages in the store
-        // setMessages does: state.chats[chatId].messages = messages
         dispatch(
           setMessages({
             chatId,
@@ -146,117 +406,68 @@ export const useChat = () => {
     [dispatch, chats],
   );
 
-  // async function handleStartChat({ message }) {
-  //   dispatch(setLoading(true));
-  //   const data = await startChat({ message });
-  //   if (data.success) {
-  //     const { userResponse, assistantResponse } = data.data;
-  //     dispatch(setChats());
-  //   }
-  // }
-
+  // ============================================
+  // 3. SEND MESSAGE (SOCKET.IO!)
+  // ============================================
+  //
+  // BEFORE (REST):
+  //   1. Call POST /api/chats/messages (or /:chatId/messages)
+  //   2. Wait 2-10 seconds for Gemini to finish
+  //   3. Get entire response at once
+  //   4. Fake a typing animation
+  //
+  // AFTER (Socket.IO):
+  //   1. Emit "chat:sendMessage" with { chatId, message }
+  //   2. Server processes and streams tokens back
+  //   3. Each "ai:token" event updates Redux → UI shows words appearing
+  //   4. No fake animation needed — it's REAL real-time
+  //
+  // The function itself is now very simple because all the heavy lifting
+  // happens in the socket event listeners (set up in useEffect above).
+  // We just emit the event and let the listeners handle everything.
+  //
   const sendMessage = useCallback(
-    async (message) => {
+    (message) => {
       dispatch(setLoading(true));
       dispatch(setError(null));
 
-      try {
-        if (!currentChatId) {
-          // ── CASE A: NEW CHAT ─────────────────────────────────────────────
-          // POST /api/chats/messages  with body: { message }
-          //
-          // Response looks like:
-          // {
-          //   data: {
-          //     title: "Any Special Day Today?",
-          //     userMessage: { _id, chatId: "69e89e...", content, role, createdAt, ... },
-          //     aiMessage:   { _id, chatId: "69e89e...", content, role, createdAt, ... }
-          //   }
-          // }
-          const res = await startChatApi({ message });
+      const socket = getSocket();
 
-          // Pull out exactly what we need from the response
-          const { title, userMessage, aiMessage } = res.data;
+      // Emit the message to the server via WebSocket
+      // The server will respond with a series of events:
+      //   chat:created (if new) → chat:userMessageSaved → ai:streamStart → ai:token (many) → ai:complete
+      socket.emit("chat:sendMessage", {
+        chatId: currentChatId, // null = create new chat, "abc123" = continue existing
+        message,
+      });
 
-          // chatId lives inside userMessage (as seen in your Postman response)
-          const chatId = userMessage.chatId;
-
-          // Add this brand new chat to the store
-          // addChat does: state.chats[chatId] = { title, messages, lastUpdated }
-          dispatch(
-            addChat({
-              chatId, // "69e89e..." → becomes the key
-              title, // "Any Special Day Today?"
-              messages: [userMessage, aiMessage], // first 2 messages right away
-              lastUpdated: aiMessage.createdAt, // when AI responded
-            }),
-          );
-
-          // Make this new chat the active one so UI shows it
-          dispatch(setCurrentChatId(chatId));
-          persistChatId(chatId);
-        } else {
-          // ── CASE B: CONTINUE EXISTING CHAT ──────────────────────────────
-          // POST /api/chats/:chatId/messages  with body: { message }
-          //
-          // Response looks like:
-          // {
-          //   data: {
-          //     userMessage: { _id, chatId, content, role, createdAt, ... },
-          //     aiMessage:   { _id, chatId, content, role, createdAt, ... }
-          //   }
-          // }
-          const res = await continueChatApi({
-            chatId: currentChatId, // the currently open chat
-            message,
-          });
-
-          const { userMessage, aiMessage } = res.data;
-
-          // Push both new messages into the existing chat's messages array
-          // appendMessages does: state.chats[chatId].messages.push(...messages)
-          dispatch(
-            appendMessages({
-              chatId: currentChatId,
-              messages: [userMessage, aiMessage],
-            }),
-          );
-        }
-      } catch (err) {
-        dispatch(setError(err.response?.data?.message || err.message));
-      } finally {
-        dispatch(setLoading(false));
-      }
+      // NOTE: We don't await anything here!
+      // Unlike REST where we `await startChatApi(...)`, socket events are
+      // fire-and-forget. The response comes back through the event listeners
+      // we set up in useEffect. This is the fundamental difference between
+      // request/response (REST) and event-driven (Socket.IO) architecture.
     },
     [currentChatId, dispatch],
   );
 
+  // ============================================
+  // 4. START NEW CHAT
+  // ============================================
   const startNewChat = useCallback(() => {
-    // resetChat does:
-    //   state.currentChatId = null  → no chat is active
-    //   state.error = null          → clear errors
-    //
-    // Now when user types a message, sendMessage sees currentChatId is null
-    // and will call startChatApi to create a brand new chat
     dispatch(resetChat());
     persistChatId(null);
   }, [dispatch]);
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // 5. DELETE CHAT
-  // ─────────────────────────────────────────────────────────────────────────
+  // ============================================
+  // 5. DELETE CHAT (REST)
+  // ============================================
   const deleteChatById = useCallback(
     async (chatId) => {
       try {
-        // Call DELETE /api/chats/:chatId on backend first
         await deleteChatApi(chatId);
 
-        // If API succeeded, remove from store
-        // removeChat does: delete state.chats[chatId]
         dispatch(removeChat(chatId));
 
-        // If the chat we just deleted was the currently open one,
-        // clear the view so user doesn't see a deleted chat
         if (chatId === currentChatId) {
           dispatch(resetChat());
           persistChatId(null);
@@ -266,13 +477,35 @@ export const useChat = () => {
       } catch (err) {
         dispatch(setError(err.response?.data?.message || err.message));
       }
-      // No setLoading here — delete is fast and sidebar handles it visually
     },
     [dispatch, currentChatId],
   );
 
+  // ============================================
+  // 6. STOP GENERATING (⚡ NEW!)
+  // ============================================
+  //
+  // Allows the user to cancel AI generation mid-stream.
+  //
+  // How it works:
+  //   1. User clicks "Stop Generating" button in the UI
+  //   2. We emit "chat:stopGenerating" to the server
+  //   3. Server calls abortController.abort()
+  //   4. generateStreamingResponse breaks out of its loop
+  //   5. Server saves whatever partial content was generated
+  //   6. Server emits "ai:complete" with the partial message
+  //   7. Our ai:complete listener clears streaming state
+  //
+  const stopGenerating = useCallback(() => {
+    const socket = getSocket();
+    socket.emit("chat:stopGenerating");
+    // The ai:complete event listener will handle clearing the streaming state
+  }, []);
+
+  // ============================================
+  // Return everything the UI needs
+  // ============================================
   return {
-    initializeSocketConnection,
     // ── STATE (data to display) ──────────────────────────────────
     chats, // full map — sidebar does Object.entries(chats)
     currentChatId, // which chat is open (used for highlighting in sidebar)
@@ -281,12 +514,17 @@ export const useChat = () => {
     isLoading, // true during API calls (show spinner)
     error, // error string or null (show error banner)
 
+    // ── NEW: Streaming state ──────────────────────────────────────
+    isStreaming, // true while AI tokens are flowing
+    streamingContent, // the live AI text: "" → "Hello" → "Hello world" → ...
+
     // ── ACTIONS (functions to call) ──────────────────────────────
     fetchAllChats, // call once in useEffect on app mount
     loadChat, // call when sidebar chat is clicked → pass chatId
     sendMessage, // call when input is submitted → pass message string
     startNewChat, // call when "+ New Chat" button clicked
     deleteChatById, // call when delete button clicked → pass chatId
+    stopGenerating, // call when "Stop Generating" button clicked (NEW!)
   };
 };
 
