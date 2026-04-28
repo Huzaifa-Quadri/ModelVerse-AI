@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import { useSelector } from "react-redux";
 import useChat from "../hooks/useChat.hook";
+import { useAuth } from "../../auth/hooks/useAuth";
 
 const MenuIcon = ({ className }) => (
   <svg
@@ -271,6 +272,23 @@ const StopIcon = ({ className }) => (
   </svg>
 );
 
+const LogoutIcon = ({ className }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    fill="none"
+    viewBox="0 0 24 24"
+    strokeWidth={1.5}
+    stroke="currentColor"
+    className={className}
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9"
+    />
+  </svg>
+);
+
 // ── Main Component ────────────────────────────────────────────────────────────
 const Home = () => {
   // ── Auth state from Redux ──────────────────────────────────────────────────
@@ -301,6 +319,8 @@ const Home = () => {
   const [deletingChatId, setDeletingChatId] = useState(null);
   const [pendingUserMessage, setPendingUserMessage] = useState(null);
   const [displayedStream, setDisplayedStream] = useState("");
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const { handleLogout } = useAuth();
 
   useEffect(() => {
     if (!isStreaming) {
@@ -583,10 +603,38 @@ const Home = () => {
           )}
         </div>
 
-        {/* Bottom User Area — unchanged */}
+        {/* Bottom User Area */}
         {isSidebarOpen && (
-          <div className="p-4 border-t border-[#2D3343]/50 bg-[#151923]">
-            <div className="flex items-center gap-3 p-3 rounded-xl hover:bg-[#202532] transition-colors cursor-pointer border border-transparent hover:border-[#2D3343]">
+          <div className="p-4 border-t border-[#2D3343]/50 bg-[#151923] relative">
+            {/* Sliding Menu Overlay & Button */}
+            {isProfileMenuOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setIsProfileMenuOpen(false)}
+                />
+              </>
+            )}
+            
+            <div className={`absolute left-4 right-4 z-50 transition-all duration-300 ease-in-out ${isProfileMenuOpen ? "bottom-full mb-2 opacity-100 visible" : "-bottom-10 opacity-0 invisible"}`}>
+              <div className="bg-[#202532] border border-[#2D3343] rounded-xl shadow-xl overflow-hidden">
+                <button
+                  onClick={() => {
+                    handleLogout();
+                    setIsProfileMenuOpen(false);
+                  }}
+                  className="w-full flex items-center gap-3 p-3 hover:bg-red-500/10 text-gray-300 hover:text-red-400 transition-colors text-sm font-medium"
+                >
+                  <LogoutIcon className="w-5 h-5" />
+                  Log out
+                </button>
+              </div>
+            </div>
+
+            <div 
+              onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
+              className={`flex items-center gap-3 p-3 rounded-xl transition-colors cursor-pointer border ${isProfileMenuOpen ? 'bg-[#202532] border-[#2D3343]' : 'border-transparent hover:bg-[#202532] hover:border-[#2D3343]'}`}
+            >
               <div className="w-10 h-10 rounded-full bg-linear-to-tr from-cyan-500 to-blue-500 flex items-center justify-center text-white font-bold shadow-md shadow-blue-500/20 shrink-0 text-lg">
                 {(user ? user.name || "U" : "G").charAt(0).toUpperCase()}
               </div>

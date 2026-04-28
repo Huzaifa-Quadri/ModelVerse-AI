@@ -211,3 +211,11 @@ export const verifyEmailToken = async (req, res, next) => {
       );
   }
 };
+
+export const logout = catchAsync(async (req, res, next) => {
+  res.clearCookie("token");
+  res.status(HTTP_STATUS.OK).json({
+    success: true,
+    message: "Logged out successfully",
+  });
+});

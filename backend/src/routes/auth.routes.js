@@ -10,6 +10,7 @@ import {
   login,
   getMe,
   verifyEmailToken,
+  logout,
 } from "../controllers/auth.controller.js";
 
 const router = express.Router();
@@ -74,5 +75,12 @@ router.post("/refresh", verifyToken, refresh);
  * @access - private
  */
 router.get("/get-me", verifyToken, getMe);
+
+/**
+ * @route - /api/auth/logout
+ * @description - Logout current user
+ * @access - public
+ */
+router.post("/logout", logout);
 
 export default router;

@@ -1,6 +1,6 @@
 import { useDispatch } from "react-redux";
 import { setUser, setLoading, setError } from "../auth.slice";
-import { registerUser, loginUser, getMe } from "../service/auth.api";
+import { registerUser, loginUser, getMe, logoutUser } from "../service/auth.api";
 
 /**
  * Must stay synchronous: React hooks cannot be `async` (that would return a Promise).
@@ -59,9 +59,22 @@ export const useAuth = () => {
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      dispatch(setLoading(true));
+      await logoutUser();
+      dispatch(setUser(null));
+    } catch (error) {
+      console.error("Logout failed:", error);
+    } finally {
+      dispatch(setLoading(false));
+    }
+  };
+
   return {
     handleLogin,
     handleRegister,
     handleGetMe,
+    handleLogout,
   };
 };
