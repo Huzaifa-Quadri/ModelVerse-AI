@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  useCallback,
+} from "react";
 import { useSelector } from "react-redux";
 import useChat from "../hooks/useChat.hook";
 
@@ -113,7 +119,10 @@ const InlineMarkdown = ({ text }) => {
     const token = match[0];
     if (token.startsWith("**")) {
       parts.push(
-        <strong key={`${match.index}-strong`} className="font-semibold text-gray-100">
+        <strong
+          key={`${match.index}-strong`}
+          className="font-semibold text-gray-100"
+        >
           {token.slice(2, -2)}
         </strong>,
       );
@@ -159,9 +168,13 @@ const MarkdownMessage = ({ content }) => {
 
     const heading = line.match(/^(#{1,3})\s+(.+)$/);
     if (heading) {
-      const Tag = heading[1].length === 1 ? "h3" : heading[1].length === 2 ? "h4" : "h5";
+      const Tag =
+        heading[1].length === 1 ? "h3" : heading[1].length === 2 ? "h4" : "h5";
       elements.push(
-        <Tag key={index} className="mt-4 first:mt-0 font-semibold text-gray-100">
+        <Tag
+          key={index}
+          className="mt-4 first:mt-0 font-semibold text-gray-100"
+        >
           <InlineMarkdown text={heading[2]} />
         </Tag>,
       );
@@ -246,54 +259,17 @@ const MarkdownMessage = ({ content }) => {
   return <div>{elements}</div>;
 };
 
-const AssistantMessageContent = ({
-  content,
-  shouldAnimate,
-  onAnimationComplete,
-  onTypingTick,
-}) => {
-  const [visibleContent, setVisibleContent] = useState(
-    shouldAnimate ? "" : content,
-  );
-  const onAnimationCompleteRef = useRef(onAnimationComplete);
-  const onTypingTickRef = useRef(onTypingTick);
-
-  useEffect(() => {
-    onAnimationCompleteRef.current = onAnimationComplete;
-    onTypingTickRef.current = onTypingTick;
-  }, [onAnimationComplete, onTypingTick]);
-
-  useEffect(() => {
-    if (!shouldAnimate) {
-      return undefined;
-    }
-
-    let currentIndex = 0;
-    const intervalId = window.setInterval(() => {
-      currentIndex += 1;
-      setVisibleContent(content.slice(0, currentIndex));
-
-      if (currentIndex >= content.length) {
-        window.clearInterval(intervalId);
-        onAnimationCompleteRef.current?.();
-      }
-    }, 12);
-
-    return () => window.clearInterval(intervalId);
-  }, [content, shouldAnimate]);
-
-  useEffect(() => {
-    if (!shouldAnimate) return undefined;
-
-    const frameId = window.requestAnimationFrame(() => {
-      onTypingTickRef.current?.();
-    });
-
-    return () => window.cancelAnimationFrame(frameId);
-  }, [shouldAnimate, visibleContent]);
-
-  return <MarkdownMessage content={shouldAnimate ? visibleContent : content} />;
-};
+// ── Stop Icon (for "Stop Generating" button) ──
+const StopIcon = ({ className }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    fill="currentColor"
+    viewBox="0 0 24 24"
+    className={className}
+  >
+    <path d="M6 6h12v12H6z" />
+  </svg>
+);
 
 // ── Main Component ────────────────────────────────────────────────────────────
 const Home = () => {
@@ -309,81 +285,116 @@ const Home = () => {
     currentMessages, // messages of open chat (array)
     isLoading, // true when any API call is running
     error, // error string or null
+    isStreaming, // NEW: true while AI tokens are flowing
+    streamingContent, // NEW: live AI text being built token-by-token
     fetchAllChats, // load sidebar on mount
     loadChat, // click a chat in sidebar
-    sendMessage, // submit message in input
+    sendMessage, // submit message in input (now uses socket!)
     startNewChat, // "+ New Chat" button
     deleteChatById, // delete button on sidebar chat
+    stopGenerating, // NEW: cancel AI generation mid-stream
   } = useChat();
 
   // ── Local UI state (only things NOT related to chat data) ─────────────────
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [inputMessage, setInputMessage] = useState("");
-  const [deletingChatId, setDeletingChatId] = useState(null); // tracks which chat is being deleted
+  const [deletingChatId, setDeletingChatId] = useState(null);
   const [pendingUserMessage, setPendingUserMessage] = useState(null);
-  const [animatingAssistantId, setAnimatingAssistantId] = useState(null);
+  const [displayedStream, setDisplayedStream] = useState("");
+
+  useEffect(() => {
+    if (!isStreaming) {
+      setDisplayedStream("");
+      return;
+    }
+
+    if (displayedStream.length < streamingContent.length) {
+      const diff = streamingContent.length - displayedStream.length;
+      let charsToAdd = 1;
+
+      if (diff > 200) charsToAdd = Math.floor(diff / 10);
+      else if (diff > 50) charsToAdd = 3;
+      else if (diff > 20) charsToAdd = 2;
+
+      const timeoutId = setTimeout(() => {
+        setDisplayedStream((prev) =>
+          streamingContent.slice(0, prev.length + charsToAdd),
+        );
+      }, 15);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [isStreaming, streamingContent, displayedStream]);
 
   // ── Ref for auto-scrolling to latest message ──────────────────────────────
   const messagesContainerRef = useRef(null);
   const messagesEndRef = useRef(null);
-  const wasLoadingRef = useRef(false);
-  const animatedAssistantIdsRef = useRef(new Set());
 
-  const scrollMessagesToBottom = useCallback((behavior = "smooth") => {
+  const autoScrollPausedRef = useRef(false);
+
+  const handleScroll = useCallback(() => {
     const container = messagesContainerRef.current;
-
     if (container) {
-      container.scrollTo({
-        top: container.scrollHeight,
-        behavior,
-      });
-      return;
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      // Allow a 150px threshold to consider as "at bottom"
+      const isNearBottom = scrollHeight - scrollTop - clientHeight < 150;
+      autoScrollPausedRef.current = !isNearBottom;
     }
-
-    messagesEndRef.current?.scrollIntoView({ behavior });
   }, []);
+
+  // Reset auto-scroll pause when switching chats
+  useEffect(() => {
+    autoScrollPausedRef.current = false;
+  }, [currentChatId]);
+
+  const scrollMessagesToBottom = useCallback(
+    (behavior = "smooth", force = false) => {
+      if (autoScrollPausedRef.current && !force) return;
+
+      const container = messagesContainerRef.current;
+
+      if (container) {
+        container.scrollTo({
+          top: container.scrollHeight,
+          behavior,
+        });
+        return;
+      }
+
+      messagesEndRef.current?.scrollIntoView({ behavior });
+    },
+    [],
+  );
 
   useEffect(() => {
     fetchAllChats();
   }, [fetchAllChats]); // fetch chats on mount
 
-  // ── Auto scroll to bottom whenever messages change ────────────────────────
+  // ── Auto scroll when messages change or streaming content updates ──────────
   useEffect(() => {
-    scrollMessagesToBottom();
-  }, [currentMessages, pendingUserMessage, isLoading, scrollMessagesToBottom]); // ← runs every time currentMessages array changes
-
-  useEffect(() => {
-    if (isLoading) {
-      wasLoadingRef.current = true;
-      return;
-    }
-
-    const latestMessage = currentMessages[currentMessages.length - 1];
-    const latestMessageId = latestMessage?._id || latestMessage?.createdAt;
-
-    if (
-      wasLoadingRef.current &&
-      latestMessage?.role === "assistant" &&
-      latestMessageId &&
-      !animatedAssistantIdsRef.current.has(latestMessageId)
-    ) {
-      queueMicrotask(() => setAnimatingAssistantId(latestMessageId));
-    }
-
-    wasLoadingRef.current = false;
-  }, [currentMessages, isLoading]);
+    scrollMessagesToBottom(isStreaming ? "auto" : "smooth");
+  }, [
+    currentMessages,
+    pendingUserMessage,
+    isLoading,
+    displayedStream,
+    isStreaming,
+    scrollMessagesToBottom,
+  ]);
 
   //* ── Handle send message ───────────────────────────────────────────────────
-  const handleSendMessage = async (e) => {
+  // NOW USES SOCKET.IO — no longer async!
+  // sendMessage() emits a socket event and returns immediately.
+  // The response comes back through socket event listeners in useChat.
+  const handleSendMessage = (e) => {
     e.preventDefault();
 
-    // Don't send if input is empty or only spaces
     if (!inputMessage.trim()) return;
+    if (isLoading || isStreaming) return; // block during loading OR streaming
 
-    // Don't send if already waiting for a response
-    if (isLoading) return;
+    autoScrollPausedRef.current = false; // Force auto-scroll when sending
 
-    const messageToSend = inputMessage; // save before clearing
+    const messageToSend = inputMessage;
+    // Optimistic UI: show user message immediately before server confirms
     const optimisticMessage = {
       _id: `pending-${Date.now()}`,
       content: messageToSend,
@@ -391,13 +402,11 @@ const Home = () => {
     };
 
     setPendingUserMessage(optimisticMessage);
-    setInputMessage(""); // clear input immediately (feels responsive)
+    setInputMessage("");
 
-    // sendMessage from hook handles everything:
-    // - if no active chat → calls startChatApi (new chat)
-    // - if chat is open → calls continueChatApi (continue)
-    await sendMessage(messageToSend);
-    setPendingUserMessage(null);
+    // Fire-and-forget! Socket events handle the rest.
+    sendMessage(messageToSend);
+    // pendingUserMessage gets cleared when chat:userMessageSaved arrives
   };
 
   // ── Handle delete with local loading state ────────────────────────────────
@@ -419,7 +428,14 @@ const Home = () => {
   );
 
   const displayedMessages = useMemo(() => {
-    if (!pendingUserMessage) return currentMessages;
+    // If we're streaming or the message was saved, we don't need the optimistic message anymore
+    if (!pendingUserMessage || isStreaming) {
+      if (isStreaming && pendingUserMessage) {
+        // Clear it behind the scenes since it's definitely saved now
+        setTimeout(() => setPendingUserMessage(null), 0);
+      }
+      return currentMessages;
+    }
 
     const pendingIsAlreadyStored = currentMessages.some(
       (msg) =>
@@ -427,10 +443,14 @@ const Home = () => {
         msg.content.trim() === pendingUserMessage.content.trim(),
     );
 
-    return pendingIsAlreadyStored
-      ? currentMessages
-      : [...currentMessages, pendingUserMessage];
-  }, [currentMessages, pendingUserMessage]);
+    if (pendingIsAlreadyStored) {
+      // Clear it behind the scenes since we found it
+      setTimeout(() => setPendingUserMessage(null), 0);
+      return currentMessages;
+    }
+
+    return [...currentMessages, pendingUserMessage];
+  }, [currentMessages, pendingUserMessage, isStreaming]);
 
   // ── Show welcome screen when no chat is open ──────────────────────────────
   const showWelcome = !currentChatId && !pendingUserMessage;
@@ -631,7 +651,8 @@ const Home = () => {
         {/* Messages Container */}
         <div
           ref={messagesContainerRef}
-          className="flex-1 overflow-y-auto p-4 sm:p-6 pb-36 scroll-smooth flex justify-center custom-scrollbar z-0 relative"
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto p-4 sm:p-6 pb-36 custom-scrollbar z-0 relative"
         >
           <div className="w-full max-w-4xl space-y-8 mt-12 sm:mt-10 mx-auto px-2 md:px-8">
             {/* ✅ Welcome screen — show when no chat is open */}
@@ -674,16 +695,7 @@ const Home = () => {
                     }`}
                   >
                     {msg.role === "assistant" ? (
-                      <AssistantMessageContent
-                        content={msg.content}
-                        shouldAnimate={messageId === animatingAssistantId}
-                        onTypingTick={() => scrollMessagesToBottom("auto")}
-                        onAnimationComplete={() => {
-                          animatedAssistantIdsRef.current.add(messageId);
-                          setAnimatingAssistantId(null);
-                          scrollMessagesToBottom("smooth");
-                        }}
-                      />
+                      <MarkdownMessage content={msg.content} />
                     ) : (
                       msg.content.split("\n").map((line, i) => (
                         <span key={i}>
@@ -698,31 +710,45 @@ const Home = () => {
             })}
 
             {/* ✅ AI Typing Indicator — shows while waiting for AI response */}
-            {isLoading && (currentChatId || pendingUserMessage) && (
+            {/* ✅ Live Streaming Message */}
+            {isStreaming && (
               <div className="flex justify-start w-full">
-                <div className="shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-linear-to-tr from-blue-500 to-purple-600 flex items-center justify-center mr-3 sm:mr-5 mt-1 shadow-lg border border-white/5">
+                <div className="shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-linear-to-tr from-blue-500 to-purple-600 flex items-center justify-center mr-3 sm:mr-5 mt-1 shadow-lg shadow-purple-500/20 border border-white/5">
                   <BotIcon className="w-5 h-5 text-white" />
                 </div>
-                <div className="bg-[#151923] border border-white/5 px-6 py-4 rounded-3xl rounded-tl-sm">
-                  <div className="flex gap-1.5 items-center h-5">
-                    <div
-                      className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"
-                      style={{ animationDelay: "0ms" }}
-                    />
-                    <div
-                      className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"
-                      style={{ animationDelay: "150ms" }}
-                    />
-                    <div
-                      className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"
-                      style={{ animationDelay: "300ms" }}
-                    />
-                  </div>
+                <div className="max-w-[85%] md:max-w-[80%] px-6 py-4 rounded-3xl text-[15px] sm:text-[16px] leading-relaxed shadow-sm bg-[#151923] border border-white/5 text-gray-200 rounded-tl-sm shadow-black/20 font-light">
+                  <MarkdownMessage content={displayedStream + " █"} />
                 </div>
               </div>
             )}
 
-            <div ref={messagesEndRef} className="h-28 sm:h-24" />
+            {isLoading &&
+              (currentChatId || pendingUserMessage) &&
+              !isStreaming && (
+                <div className="flex justify-start w-full">
+                  <div className="shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-linear-to-tr from-blue-500 to-purple-600 flex items-center justify-center mr-3 sm:mr-5 mt-1 shadow-lg border border-white/5">
+                    <BotIcon className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="bg-[#151923] border border-white/5 px-6 py-4 rounded-3xl rounded-tl-sm">
+                    <div className="flex gap-1.5 items-center h-5">
+                      <div
+                        className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"
+                        style={{ animationDelay: "0ms" }}
+                      />
+                      <div
+                        className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"
+                        style={{ animationDelay: "150ms" }}
+                      />
+                      <div
+                        className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"
+                        style={{ animationDelay: "300ms" }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+            <div ref={messagesEndRef} className="h-40 sm:h-48" />
           </div>
         </div>
 
@@ -753,29 +779,43 @@ const Home = () => {
                 }
                 // ✅ Disable input while loading so user can't spam send
                 disabled={isLoading}
-                className={`w-full bg-[#1A1D27] border border-white/10 text-gray-100 placeholder-gray-500 rounded-4xl py-4 sm:py-5 pl-7 pr-[4.5rem] outline-none focus:border-blue-500/40 focus:bg-[#1C202B] transition-all resize-none overflow-hidden max-h-40 text-[15px] sm:text-[16px] custom-scrollbar shadow-2xl relative z-10 ${
+                className={`w-full bg-[#1A1D27] border border-white/10 text-gray-100 placeholder-gray-500 rounded-4xl py-4 sm:py-5 pl-7 pr-18 outline-none focus:border-blue-500/40 focus:bg-[#1C202B] transition-all resize-none overflow-hidden max-h-40 text-[15px] sm:text-[16px] custom-scrollbar shadow-2xl relative z-10 ${
                   isLoading ? "opacity-60 cursor-not-allowed" : ""
                 }`}
                 rows={1}
                 style={{ minHeight: "60px" }}
               />
-              <button
-                type="submit"
-                // ✅ Disable when empty OR when loading
-                disabled={!inputMessage.trim() || isLoading}
-                className={`absolute right-3 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full flex items-center justify-center transition-all duration-300 z-20 ${
-                  inputMessage.trim() && !isLoading
-                    ? "bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-500/30"
-                    : "bg-transparent text-gray-600 scale-95"
-                }`}
-              >
-                {/* Show spinner in send button while loading */}
-                {isLoading ? (
-                  <div className="w-5 h-5 border-2 border-gray-600 border-t-blue-400 rounded-full animate-spin" />
-                ) : (
-                  <SendIcon className="w-5 h-5 sm:w-6 sm:h-6" />
-                )}
-              </button>
+              {isStreaming ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    stopGenerating();
+                  }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full flex items-center justify-center transition-all duration-300 z-20 bg-red-600/90 text-white hover:bg-red-500 shadow-lg shadow-red-500/30"
+                  title="Stop Generating"
+                >
+                  <StopIcon className="w-5 h-5 sm:w-6 sm:h-6" />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  // ✅ Disable when empty OR when loading
+                  disabled={!inputMessage.trim() || isLoading}
+                  className={`absolute right-3 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full flex items-center justify-center transition-all duration-300 z-20 ${
+                    inputMessage.trim() && !isLoading
+                      ? "bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-500/30"
+                      : "bg-transparent text-gray-600 scale-95"
+                  }`}
+                >
+                  {/* Show spinner in send button while loading */}
+                  {isLoading ? (
+                    <div className="w-5 h-5 border-2 border-gray-600 border-t-blue-400 rounded-full animate-spin" />
+                  ) : (
+                    <SendIcon className="w-5 h-5 sm:w-6 sm:h-6" />
+                  )}
+                </button>
+              )}
             </form>
             <div className="text-center mt-4 text-[12px] text-gray-500/80 font-medium">
               ModelVerse AI can make mistakes. Verify important information.
