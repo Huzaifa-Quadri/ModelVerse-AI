@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { sileo } from "sileo";
 import AuthShell from "../components/AuthShell";
 import AuthInput from "../components/AuthInput";
 import { useAuth } from "../hooks/useAuth";
@@ -18,17 +19,85 @@ const Register = () => {
   async function onSubmit(e) {
     e.preventDefault();
     setConfirmError("");
+
+    // ── Client-side validations ──────────────────────────────────
+    if (!name.trim()) {
+      sileo.error({
+        title: "Name required",
+        description: "Please enter your full name.",
+      });
+      return;
+    }
+
+    if (!email.trim()) {
+      sileo.error({
+        title: "Email required",
+        description: "Please enter a valid email address.",
+      });
+      return;
+    }
+
+    if (password.length < 6) {
+      sileo.error({
+        title: "Password too short",
+        description: "Password must be at least 6 characters long.",
+      });
+      return;
+    }
+
     if (password !== confirmPassword) {
       setConfirmError("Passwords do not match.");
+      sileo.error({
+        title: "Passwords don't match",
+        description: "Please make sure both passwords are identical.",
+      });
       return;
     }
+
     if (!acceptTerms) {
+      sileo.error({
+        title: "Terms not accepted",
+        description: "You must agree to the terms and conditions.",
+      });
       return;
     }
+
+    // ── Server call with promise-based toast ─────────────────────
     try {
       setIsSubmitting(true);
-      await handleRegister({ name, email, password });
+      await sileo.promise(handleRegister({ name, email, password }), {
+        loading: {
+          title: "Creating your account…",
+          description: "Hang tight while we set things up.",
+        },
+        success: () => ({
+          title: "Account created!",
+          description:
+            "A verification email has been sent. Please check your inbox.",
+        }),
+        error: (err) => {
+          const msg =
+            err?.response?.data?.message || err?.message || "Registration failed";
+
+          // Tailor the description for known backend messages
+          if (msg.toLowerCase().includes("already exists")) {
+            return {
+              title: "Account already exists",
+              description:
+                "An account with this email already exists. Try signing in instead.",
+            };
+          }
+
+          return {
+            title: "Registration failed",
+            description: msg,
+          };
+        },
+      });
+
       navigator("/login");
+    } catch {
+      // error toast already shown by sileo.promise
     } finally {
       setIsSubmitting(false);
     }

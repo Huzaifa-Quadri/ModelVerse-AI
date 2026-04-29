@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
+import { sileo } from "sileo";
 import AuthShell from "../components/AuthShell";
 import AuthInput from "../components/AuthInput";
 import { useAuth } from "../hooks/useAuth";
@@ -17,18 +18,75 @@ const Login = () => {
   if (!loading && user) {
     return <Navigate to="/" replace />;
   }
+
   async function onSubmit(e) {
     e.preventDefault();
-    setIsSubmitting(true);
-    let loggedin = false;
+
+    // ── Client-side validations ──────────────────────────────────
+    if (!email.trim()) {
+      sileo.error({
+        title: "Email required",
+        description: "Please enter your email address to continue.",
+      });
+      return;
+    }
+
+    if (!password) {
+      sileo.error({
+        title: "Password required",
+        description: "Please enter your password.",
+      });
+      return;
+    }
+
+    // ── Server call with promise-based toast ─────────────────────
     try {
-      await handleLogin({ email, password });
-      loggedin = true;
+      setIsSubmitting(true);
+      await sileo.promise(handleLogin({ email, password }), {
+        loading: {
+          title: "Signing you in…",
+          description: "Verifying your credentials.",
+        },
+        success: () => ({
+          title: "Welcome back!",
+          description: "You've been signed in successfully.",
+        }),
+        error: (err) => {
+          const msg =
+            err?.response?.data?.message || err?.message || "Login failed";
+
+          // Tailor toast for known backend error messages
+          if (msg.toLowerCase().includes("not verified")) {
+            return {
+              title: "Email not verified",
+              description:
+                "Please verify your email before signing in. Check your inbox for the verification link.",
+            };
+          }
+
+          if (
+            msg.toLowerCase().includes("invalid") ||
+            msg.toLowerCase().includes("credentials")
+          ) {
+            return {
+              title: "Invalid credentials",
+              description:
+                "The email or password you entered is incorrect. Please try again.",
+            };
+          }
+
+          return {
+            title: "Sign in failed",
+            description: msg,
+          };
+        },
+      });
+
+      navigator("/");
+    } catch {
+      // error toast already shown by sileo.promise
     } finally {
       setIsSubmitting(false);
-    }
-    if (loggedin) {
-      navigator("/");
     }
   }
 
@@ -116,7 +174,7 @@ const Login = () => {
         </button>
 
         <p className="pt-2 text-center text-sm text-white/70">
-          Don’t have an account?{" "}
+          Don't have an account?{" "}
           <Link
             to="/register"
             className="font-semibold text-white hover:underline"
