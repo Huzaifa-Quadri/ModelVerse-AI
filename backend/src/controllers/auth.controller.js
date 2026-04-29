@@ -7,7 +7,7 @@ import userModel from "../models/user.model.js";
 import jwt from "jsonwebtoken";
 import { getVerificationHTML } from "../utils/verificationTemplate.js";
 
-const recieverEmail = "thegentledude883@gmail.com";
+// const recieverEmail = "your_test_email_here";
 
 export const register = catchAsync(async (req, res, next) => {
   const { name, email, password } = req.body;
@@ -47,8 +47,8 @@ export const register = catchAsync(async (req, res, next) => {
   //! Sending a email with dummy link for now till we get actual link-
   const port = process.env.PORT;
   const sent = await sendVerificationEmail({
-    // email: user.email,
-    email: recieverEmail, //for now; will send mail only on this email as dummy emails will be used in testing
+    email: user.email,
+    // email: recieverEmail, //STRICTLY FOR TESTING: use this for now; will send mail only on this email as dummy emails will be used in testing
     name: user.name,
     verificationLink:
       process.env.backendURL ||

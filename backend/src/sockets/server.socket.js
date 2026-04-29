@@ -100,7 +100,7 @@ export function initSocket(httpServer) {
       origin:
         process.env.NODE_ENV === "development"
           ? `http://localhost:${process.env.Frontend_PORT}`
-          : process.env.Frontend_URL,
+          : process.env.FRONTEND_URL,
       methods: ["GET", "POST"],
       credentials: true, // IMPORTANT: allows cookies to be sent with the connection
     },
