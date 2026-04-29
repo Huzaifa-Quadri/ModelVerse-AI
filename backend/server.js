@@ -2,6 +2,7 @@ import app from "./src/app.js";
 import { connectDB, disconnectDB } from "./src/config/database.js";
 import http from "http";
 import { initSocket } from "./src/sockets/server.socket.js";
+import { startKeepAlive, stopKeepAlive } from "./src/utils/keepAlive.js";
 
 // ============================================
 // Configuration
@@ -38,6 +39,9 @@ const startServer = async () => {
 ║  URL:      http://localhost:${PORT}           ╣
 ╚════════════════════════════════════════════╝
       `);
+
+      // Start keep-alive pinger to prevent Render cold boot
+      startKeepAlive();
     });
   } catch (error) {
     console.error("❌ Failed to start server:", error.message);
@@ -61,6 +65,9 @@ const gracefulShutdown = async (signal) => {
         });
       });
     }
+
+    // Stop keep-alive pinger
+    stopKeepAlive();
 
     // Disconnect from MongoDB
     await disconnectDB();

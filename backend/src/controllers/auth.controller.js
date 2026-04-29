@@ -9,6 +9,13 @@ import { getVerificationHTML } from "../utils/verificationTemplate.js";
 
 // const recieverEmail = "your_test_email_here";
 
+const cookieOptions = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+};
+
 export const register = catchAsync(async (req, res, next) => {
   const { name, email, password } = req.body;
 
@@ -28,7 +35,7 @@ export const register = catchAsync(async (req, res, next) => {
   // Generate JWT token
   const token = generateToken(user._id, user.email);
   // console.log("Registered user token : ", token);
-  res.cookie("token", token);
+  res.cookie("token", token, cookieOptions);
 
   // Log successful registration
   console.log(`✅ New user registered: ${user.email}`);
@@ -101,7 +108,7 @@ export const login = catchAsync(async (req, res, next) => {
   // Generate JWT token
   const token = generateToken(user._id, user.email);
   // console.log("Logged in user token : ", token);
-  res.cookie("token", token);
+  res.cookie("token", token, cookieOptions);
 
   // Log successful login
   console.log(`✅ User logged in: ${user.email}`);
@@ -213,7 +220,7 @@ export const verifyEmailToken = async (req, res, next) => {
 };
 
 export const logout = catchAsync(async (req, res, next) => {
-  res.clearCookie("token");
+  res.clearCookie("token", cookieOptions);
   res.status(HTTP_STATUS.OK).json({
     success: true,
     message: "Logged out successfully",
