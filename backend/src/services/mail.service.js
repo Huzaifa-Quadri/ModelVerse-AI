@@ -24,6 +24,8 @@ import nodemailer from "nodemailer";
 // ============================================
 const transporter = nodemailer.createTransport({
   service: "gmail",
+  port: parseInt(process.env.BREVO_SMTP_PORT || "587"),
+  secure: false, // true for 465, false for other ports
   auth: {
     // type: "OAuth2",
     user: process.env.GOOGLE_USER_EMAIL,
