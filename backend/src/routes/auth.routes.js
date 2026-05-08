@@ -11,6 +11,7 @@ import {
   getMe,
   verifyEmailToken,
   logout,
+  deleteAccount,
 } from "../controllers/auth.controller.js";
 
 const router = express.Router();
@@ -79,8 +80,15 @@ router.get("/get-me", verifyToken, getMe);
 /**
  * @route - /api/auth/logout
  * @description - Logout current user
- * @access - public
+ * @access - private
  */
-router.post("/logout", logout);
+router.post("/logout", verifyToken, logout);
+
+/**
+ * @route - /api/auth/delete-account
+ * @description - Delete current user account
+ * @access - private
+ */
+router.delete("/delete-account", verifyToken, deleteAccount);
 
 export default router;

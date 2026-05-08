@@ -24,7 +24,7 @@ const chatSchema = new mongoose.Schema(
     },
     messageCount: {
       type: Number,
-      default: 2,
+      // default: 2,
     },
     isArchived: {
       type: Boolean,

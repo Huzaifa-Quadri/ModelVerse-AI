@@ -6,6 +6,8 @@ import { sendVerificationEmail } from "../utils/email.js";
 import userModel from "../models/user.model.js";
 import jwt from "jsonwebtoken";
 import { getVerificationHTML } from "../utils/verificationTemplate.js";
+import chatModel from "../models/chat.model.js";
+import MessageModel from "../models/message.model.js";
 
 // const recieverEmail = "your_test_email_here";
 
@@ -226,3 +228,37 @@ export const logout = catchAsync(async (req, res, next) => {
     message: "Logged out successfully",
   });
 });
+
+
+export const deleteAccount = catchAsync(async (req, res) => {
+  const { userId } = req.user;
+
+  if (!userId) {
+    return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+      success: false,
+      message: "User not found",
+    });
+  }
+
+  const chats = await chatModel.find({ userId: userId });
+  for (const chat of chats) {
+    await MessageModel.deleteMany({ chat: chat._id });
+    await chatModel.findByIdAndDelete(chat._id);
+  }
+
+  // await chatModel.deleteMany({ userId: userId }); //can use this instead of deleting chat one by one in for loop
+  // await MessageModel.deleteMany({ userId: userId }); // can use this instead of deleting messages in for loop
+
+  const user = await User.findByIdAndDelete(userId);
+  if (!user) {
+    return res.status(HTTP_STATUS.NOT_FOUND).json({
+      success: false,
+      message: "User not found",
+    });
+  }
+
+  res.status(HTTP_STATUS.OK).json({
+    success: true,
+    message: "Account deleted successfully",
+  });
+})
