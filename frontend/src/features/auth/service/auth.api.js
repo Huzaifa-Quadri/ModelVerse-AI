@@ -24,3 +24,8 @@ export const getMe = async () => {
     const response = await api.get("/get-me");
     return response.data;
 }
+
+export const deleteAccountUser = async () => {
+    const response = await api.delete("/delete-account");
+    return response.data;
+}

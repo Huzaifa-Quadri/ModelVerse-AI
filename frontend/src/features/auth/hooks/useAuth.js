@@ -1,6 +1,6 @@
 import { useDispatch } from "react-redux";
 import { setUser, setLoading, setError } from "../auth.slice";
-import { registerUser, loginUser, getMe, logoutUser } from "../service/auth.api";
+import { registerUser, loginUser, getMe, logoutUser, deleteAccountUser } from "../service/auth.api";
 
 /**
  * Must stay synchronous: React hooks cannot be `async` (that would return a Promise).
@@ -53,7 +53,6 @@ export const useAuth = () => {
       dispatch(
         setError(error.response?.data?.message || "Can't get user details"),
       );
-      throw error;
     } finally {
       dispatch(setLoading(false));
     }
@@ -71,10 +70,24 @@ export const useAuth = () => {
     }
   };
 
+  const handleDeleteAccount = async () => {
+    try {
+      dispatch(setLoading(true));
+      await deleteAccountUser();
+      dispatch(setUser(null));
+    } catch (error) {
+      console.error("Delete account failed:", error);
+      throw error;
+    } finally {
+      dispatch(setLoading(false));
+    }
+  }
+
   return {
     handleLogin,
     handleRegister,
     handleGetMe,
     handleLogout,
+    handleDeleteAccount,
   };
 };
