@@ -2,6 +2,11 @@ import express from "express";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import morgan from "morgan";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // ============================================
 // Import Routes
@@ -56,19 +61,20 @@ if (process.env.NODE_ENV === "development") {
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.use(cookieParser());
+app.use(express.static("public"));
 
 // ============================================
 // Health Check Endpoint
 // ============================================
 
-app.get("/", (req, res) => {
-  const uptime = process.uptime();
-  const hours = Math.floor(uptime / 3600);
-  const mins = Math.floor((uptime % 3600) / 60);
-  const secs = Math.floor(uptime % 60);
+// app.get("/", (req, res) => {
+//   const uptime = process.uptime();
+//   const hours = Math.floor(uptime / 3600);
+//   const mins = Math.floor((uptime % 3600) / 60);
+//   const secs = Math.floor(uptime % 60);
 
-  res.status(200).send(awakeAndChill(hours, mins, secs));
-});
+//   res.status(200).send(awakeAndChill(hours, mins, secs));
+// });
 
 /**
  * Health Check Route
@@ -91,6 +97,15 @@ app.get("/api/health", (req, res) => {
 
 app.use("/api/auth", authRoutes);
 app.use("/api/chats", ChatRouter);
+
+
+// ============================================
+// WildCard Api
+// ============================================
+
+app.get(/.*/, (req, res) => {
+  res.sendFile(path.resolve(__dirname, '../public', 'index.html'));
+});
 
 // ============================================
 // Error Handling & 404
