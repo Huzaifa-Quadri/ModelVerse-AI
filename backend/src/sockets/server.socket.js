@@ -100,9 +100,9 @@ export function initSocket(httpServer) {
       origin:
         process.env.NODE_ENV === "development"
           ? `http://localhost:${process.env.Frontend_PORT}`
-          : process.env.FRONTEND_URL,
+          : (process.env.WEBSITE_URL || true), // true = reflect request origin (safe for same-origin deployment)
       methods: ["GET", "POST"],
-      credentials: true, // IMPORTANT: allows cookies to be sent with the connection
+      credentials: true,
     },
   });
 

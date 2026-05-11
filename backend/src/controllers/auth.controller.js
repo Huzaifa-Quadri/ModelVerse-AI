@@ -11,10 +11,12 @@ import MessageModel from "../models/message.model.js";
 
 // const recieverEmail = "your_test_email_here";
 
+// COOKIE_SECURE=true requires HTTPS. Set false when running over HTTP (no SSL termination).
+const isSecure = process.env.COOKIE_SECURE === "true";
 const cookieOptions = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+  secure: isSecure,
+  sameSite: isSecure ? "none" : "lax",
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
 };
 
@@ -59,9 +61,9 @@ export const register = catchAsync(async (req, res, next) => {
     email: user.email,
     // email: recieverEmail, //STRICTLY FOR TESTING: use this for now; will send mail only on this email as dummy emails will be used in testing
     name: user.name,
-    verificationLink:
-      process.env.backendURL ||
-      `http://localhost:${port}/api/auth/verify/${token}`,
+    verificationLink: process.env.WEBSITE_URL
+      ? `${process.env.WEBSITE_URL}/api/auth/verify/${token}`
+      : `http://localhost:${port}/api/auth/verify/${token}`,
   });
   if (sent) {
     console.log("📧 Verification Email sent successfully");
