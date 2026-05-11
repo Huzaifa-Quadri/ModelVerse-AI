@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const baseUrl = `${import.meta.env.VITE_BACKEND_URL || "http://localhost:4000"}/api/chats`;
+const baseUrl = "/api/chats";
 
 const api = axios.create({
   baseURL: baseUrl,

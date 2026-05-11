@@ -34,10 +34,10 @@ import { io } from "socket.io-client";
 let socket = null;
 
 // ── Server URL ──
-// In development, Vite proxies /api to localhost:4000 via vite.config.js,
-// but Socket.IO doesn't go through the Vite proxy — it needs the direct URL.
-// In production, this would be your deployed backend URL.
-const SOCKET_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000";
+// We use an empty string as a fallback so that in development it connects to the same origin,
+// allowing Vite's proxy (if configured for websockets) or production reverse proxies to handle it.
+// const SOCKET_URL = import.meta.env.VITE_BACKEND_URL || "/";
+const SOCKET_URL = "/";
 
 // ============================================
 // getSocket() — Get or create the socket connection
