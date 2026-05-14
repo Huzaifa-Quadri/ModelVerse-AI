@@ -43,8 +43,8 @@ const Home = () => {
 
   useEffect(() => {
     if (!isStreaming) {
-      setDisplayedStream("");
-      return;
+      const timeoutId = setTimeout(() => setDisplayedStream(""), 0);
+      return () => clearTimeout(timeoutId);
     }
 
     if (displayedStream.length < streamingContent.length) {

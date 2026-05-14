@@ -37,7 +37,7 @@ const DeleteAccountModal = ({ isOpen, onClose, onDelete }) => {
           description: err?.response?.data?.message || err?.message || "Something went wrong.",
         }),
       });
-    } catch (error) {
+    } catch {
       // error handled by sileo
     } finally {
       setIsDeleting(false);
